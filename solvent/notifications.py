@@ -7,6 +7,7 @@ import os
 import time
 from pathlib import Path
 
+from . import _filelock
 from .paths import data_dir
 
 
@@ -20,19 +21,15 @@ def _lock_path() -> Path:
 
 class _LockCtx:
     def __enter__(self):
-        import fcntl
-
         _lock = _lock_path()
         _lock.parent.mkdir(parents=True, exist_ok=True)
         self._fd = os.open(_lock, os.O_CREAT | os.O_RDWR)
-        fcntl.flock(self._fd, fcntl.LOCK_EX)
+        _filelock.acquire(self._fd)
         self._lock_path = _lock
         return self
 
     def __exit__(self, *args):
-        import fcntl
-
-        fcntl.flock(self._fd, fcntl.LOCK_UN)
+        _filelock.release(self._fd)
         os.close(self._fd)
 
 

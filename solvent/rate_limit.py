@@ -59,6 +59,27 @@ class RateLimiter:
     # Public API
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Lifetime
+    # ------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close the underlying SQLite handle.
+
+        Windows keeps a database file locked until its last open handle is
+        closed, so callers that want to move, back up, or delete the data
+        directory must release the limiter first. Safe to call twice.
+        """
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> "RateLimiter":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
     def check(self, user_key: str) -> tuple[bool, str]:
         """Check whether *user_key* is allowed to make a request.
 
