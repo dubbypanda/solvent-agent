@@ -19,8 +19,9 @@ Nemotron may chat and plan; treasury writes and Stripe stay in stages/guardrails
 ## Commands
 
 ```bash
-python -m solvent serve|worker|telegram|doctor|pairing|workspace
-python3 run_demo.py          # batch demo / onboarding
+python -m solvent            # batch demo / onboarding (alias: run_demo.py)
+python -m solvent init|status|jobs|logs|config|upgrade
+python -m solvent serve|worker|telegram|doctor|pairing|workspace|finance|reconcile
 ```
 
 ## Conventions

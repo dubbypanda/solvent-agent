@@ -20,13 +20,14 @@ cd solvent-agent
 python3 run_demo.py          # no install required for the demo
 pip install -e ".[dev]"
 python3 -m pytest tests/ -v  # run the test suite
+ruff check solvent tests run_demo.py
 ```
 
 ## Pull Request Process
 
 1. Fork the repo and create a branch: `git checkout -b feat/your-feature`
 2. Make your changes.
-3. Ensure `python3 -m pytest tests/ -q` passes.
+3. Ensure `python3 -m pytest tests/ -q` and `ruff check solvent tests run_demo.py` pass.
 4. Open a pull request with a clear description of what changed and why.
 
 ## Code Style
