@@ -6,6 +6,10 @@
 
 It sells research briefs. It collects payment on Stripe. It spends its own revenue to provision the compute it needs. And it refuses any job that doesn't clear a margin.
 
+> **Demo by default.** `pip install solvent-agent` and `solvent` run an **offline, zero-key simulation** of that loop. Dollar figures in the demo are illustrative — **not production revenue**. Stripe test-mode Payment Links and live NVIDIA Nemotron are opt-in; see [Make It Real](#-make-it-real).
+
+[![CI](https://github.com/ianalloway/solvent-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/ianalloway/solvent-agent/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/solvent-agent.svg)](https://pypi.org/project/solvent-agent/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Hackathon](https://img.shields.io/badge/NVIDIA%20%C3%97%20Stripe%20Hackathon-2024-76b900?logo=nvidia&logoColor=white)](https://www.nvidia.com)
@@ -45,16 +49,29 @@ pipx install solvent-agent
 
 solvent                          # run the demo
 solvent finance                  # financial report (income, runway, forecast)
+solvent doctor                   # stack diagnostics (keys, extras, workspace)
 solvent --help                   # list all commands
 solvent --version
 ```
+
+| Command | What it does |
+|---|---|
+| `solvent` | batch demo (onboarding wizard on first run) |
+| `solvent init` | create data dirs, treasury DB, and workspace files |
+| `solvent status` | live treasury summary (`--watch` to auto-refresh) |
+| `solvent finance` | income statement, unit economics, runway, forecast |
+| `solvent doctor` | diagnostics: API keys, extras, workspace files |
+| `solvent serve` | webhooks + job API + hosted dashboard (`[serve]` extra) |
+| `solvent worker` | resume incomplete jobs / process the queue |
+| `solvent jobs` | list / show / retry / cancel jobs (`jobs --help`) |
 
 Or clone and run from source:
 
 ```bash
 git clone https://github.com/ianalloway/solvent-agent.git
 cd solvent-agent
-python3 run_demo.py
+python3 run_demo.py              # batch demo (onboarding wizard on first run)
+python3 run_demo.py --no-onboard # skip wizard when scripting
 pip install -e .                 # editable install from a checkout
 ```
 
@@ -81,10 +98,12 @@ installed elsewhere, SOLVENT writes to `~/.solvent` instead of into
 
 ## 📊 The Demo
 
-After a run, open the live treasury dashboard:
+After a run, the CLI prints the dashboard path. Open it in a browser:
 
 ```bash
-open treasury_dashboard.html   # macOS
+open treasury_dashboard.html          # macOS (source checkout)
+xdg-open treasury_dashboard.html      # Linux
+# pip/pipx install: ~/.solvent/treasury_dashboard.html  (or $SOLVENT_HOME)
 ```
 
 ![SOLVENT Treasury Dashboard — live P&L, job cards, resource allocation, transaction log](docs/dashboard.png)
@@ -202,9 +221,6 @@ python3 -m solvent worker              # resume incomplete jobs, process queue
 
 # Interactive voice dashboard (chat + live SSE updates):
 open "http://127.0.0.1:8787/?token=$SOLVENT_DASHBOARD_TOKEN"
-
-# Or dev convenience:
-python3 run_demo.py --serve --no-onboard
 ```
 
 The hosted dashboard at `/` includes a **chat panel** (type or use the mic with Web Speech API) and **live treasury updates** via Server-Sent Events (`/api/events`). Dashboard/control routes require `SOLVENT_DASHBOARD_TOKEN` via `?token=...` or the `X-Solvent-Dashboard-Token` header before they expose status data or route chat through the Nemotron agent loop.
@@ -319,6 +335,7 @@ Personality and operating rules come from the **agent workspace** (`SOUL.md`, `B
 ```bash
 pip install "solvent-agent[dev]"
 python3 -m pytest tests/ -v
+ruff check solvent tests run_demo.py
 ```
 
 Unit tests cover: pricing & margin gate · guardrail policy · treasury ledger · Stripe client (simulate + test mode) · config/onboarding.
@@ -329,6 +346,8 @@ Unit tests cover: pricing & margin gate · guardrail policy · treasury ledger �
 
 ```
 solvent/
+  __main__.py      `python -m solvent` / `solvent` command dispatcher
+  cli.py           demo / interactive CLI (`solvent` with no subcommand)
   agent.py         the orchestrator (earn → fulfil → spend → book)
   stages.py        idempotent stage machine (quote→paid→fulfill→deliver→spend)
   treasury.py      SQLite ledger / balance sheet

@@ -9,9 +9,12 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 dynamic = ["version"]
-keywords = ["agent", "stripe", "nvidia", "nemotron", "llm", "treasury"]
+keywords = ["agent", "stripe", "nvidia", "nemotron", "llm", "treasury", "self-funding"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
@@ -40,6 +43,9 @@ solvent = "solvent.__main__:main"
 [project.urls]
 Homepage = "https://github.com/ianalloway/solvent-agent"
 Repository = "https://github.com/ianalloway/solvent-agent"
+Issues = "https://github.com/ianalloway/solvent-agent/issues"
+Documentation = "https://github.com/ianalloway/solvent-agent#readme"
+Changelog = "https://github.com/ianalloway/solvent-agent/releases"
 
 [tool.setuptools.dynamic]
 version = { attr = "solvent.__version__" }
