@@ -209,6 +209,7 @@ def build_status_data(snapshot: dict, log: list[dict]) -> dict:
             "deliverable": "",
             "expenses": [],
             "pnl": 0,
+            "counter_offer": "",
         }
     )
 
@@ -231,6 +232,8 @@ def build_status_data(snapshot: dict, log: list[dict]) -> dict:
         elif st == "declined":
             jobs_data[jid]["status"] = "declined"
             jobs_data[jid]["reason"] = e["reason"]
+        elif st == "counter_offer":
+            jobs_data[jid]["counter_offer"] = e.get("message", "")
         elif st == "invoice":
             jobs_data[jid]["status"] = "awaiting_payment"
             jobs_data[jid]["invoice_url"] = e["url"]
@@ -268,6 +271,11 @@ def build_status_data(snapshot: dict, log: list[dict]) -> dict:
             btn_html = f"""<button class="btn btn-primary btn-sm" onclick="openBriefModal({jid_js_arg})">View Brief</button>"""
         elif job["status"] == "declined":
             btn_html = f"""<span class="decline-label">Declined: {h(job["reason"])}</span>"""
+            if job["counter_offer"]:
+                btn_html += (
+                    f"""<span class="decline-label">💡 Counter-offer: """
+                    f"""{h(job["counter_offer"])}</span>"""
+                )
         elif job["status"] == "awaiting_payment":
             btn_html = f"""<a href="{safe_href(job["invoice_url"])}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">Pay Invoice</a>"""
 
@@ -336,6 +344,11 @@ def build_status_data(snapshot: dict, log: list[dict]) -> dict:
             _why = e.get("reason") or e.get("rule")
             _why_txt = f" — {h(_why)}" if _why else ""
             msg = f"🛑 Spend BLOCKED by guardrail: {fmt(e['amount'])} to {h(e['vendor'])} ({h(e['memo'])}){_why_txt}"
+        elif st == "counter_offer":
+            msg = (
+                f"💡 Counter-offer: {h(e.get('message', ''))} "
+                f"(<span class='green-txt'>{h(e.get('margin_pct'))}%</span> margin)"
+            )
         elif st == "refunded":
             msg = f"↩️ Escrow Refunded: Returned <span class='red-txt'>{fmt(e['amount'])}</span> to customer ({h(e['reason'])})"
         elif st == "booked":
