@@ -17,14 +17,17 @@ Commands:
   (none)        run the batch demo / interactive session
   init          first-run setup: create dirs, DB, and workspace files
   status        live summary: balance, jobs, API key presence; --watch to auto-refresh
+  quote         dry-run the margin gate on a job (price, cost, counter-offer)
   upgrade       check for newer version on PyPI; --check exits 1 if outdated
   jobs          list/show/retry/cancel jobs (jobs --help for sub-commands)
+  backlog       rank open jobs by return on capital and fundability
   logs          tail the structured event log; -f to follow, --job/--stage to filter
   config        show/get/set/reset local configuration values
   serve         webhooks + job API + hosted briefs
   worker        resume incomplete jobs, process the queue
   telegram      long-poll the Telegram bot
   finance       income statement, unit economics, runway, forecast (alias: report)
+  guardrails    spend policy in force: caps, vendor exposure, blocked spends
   reconcile     Stripe <-> ledger drift check
   doctor        stack diagnostics
   pairing       manage Telegram DM pairing codes
@@ -59,6 +62,11 @@ def main() -> None:
         from .status import main as status_main
 
         status_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "quote":
+        sys.argv.pop(1)
+        from .quote_cmd import main as quote_main
+
+        quote_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "jobs":
         sys.argv.pop(1)
         from .job_cmd import main as jobs_main
@@ -69,6 +77,11 @@ def main() -> None:
         from .upgrade import main as upgrade_main
 
         upgrade_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "backlog":
+        sys.argv.pop(1)
+        from .backlog import main as backlog_main
+
+        backlog_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "logs":
         sys.argv.pop(1)
         from .logs import main as logs_main
@@ -89,6 +102,11 @@ def main() -> None:
         from .worker import main as worker_main
 
         worker_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "guardrails":
+        sys.argv.pop(1)
+        from .guardrail_cmd import main as guardrails_main
+
+        guardrails_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "reconcile":
         sys.argv.pop(1)
         from .reconcile import main as reconcile_main

@@ -75,6 +75,9 @@ class TestCliRouting(unittest.TestCase):
         self.assertIn("Commands:", out)
         self.assertIn("finance", out)
         self.assertIn("serve", out)
+        self.assertIn("quote", out)
+        self.assertIn("backlog", out)
+        self.assertIn("guardrails", out)
         mock_demo.assert_not_called()
 
     # ── additional subcommand routes ──────────────────────────────────────
@@ -116,6 +119,21 @@ class TestCliRouting(unittest.TestCase):
 
     def test_worker_routes_to_worker(self):
         target, demo = self._routes_to(["solvent", "worker"], "worker")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_quote_routes_to_quote_cmd(self):
+        target, demo = self._routes_to(["solvent", "quote", "topic", "--budget", "49"], "quote_cmd")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_backlog_routes_to_backlog(self):
+        target, demo = self._routes_to(["solvent", "backlog"], "backlog")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_guardrails_routes_to_guardrail_cmd(self):
+        target, demo = self._routes_to(["solvent", "guardrails"], "guardrail_cmd")
         target.assert_called_once()
         demo.assert_not_called()
 

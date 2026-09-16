@@ -230,6 +230,9 @@ See [docs/PRODUCTION.md](docs/PRODUCTION.md) for Stripe webhook setup, SMTP deli
 ### Operations
 
 ```bash
+python3 -m solvent quote "AI inference chips, 2026" --budget 49   # dry-run the margin gate
+python3 -m solvent backlog                # rank open jobs by return on capital
+python3 -m solvent guardrails             # spend policy in force + vendor exposure
 python3 -m solvent reconcile --since 7d   # Stripe ↔ ledger drift check
 python3 -m solvent finance                # income statement, unit economics, runway
 python3 -m solvent finance --json         # machine-readable report
@@ -245,6 +248,89 @@ funds itself — a **net-P&L trend** bucketed by day/week/month, and a
 **balance forecast** (central projection with a best/worst band whose width
 grows with daily volatility). The income statement, runway, trend, and
 forecast also render as a **Financial Statement** panel in the HTML dashboard.
+
+---
+
+## 🧭 Commercial Judgement
+
+Three things turn the money loop into something that behaves like a shop
+rather than a script.
+
+### Counter-offers — a decline is a negotiating position
+
+The margin gate still refuses work it cannot do profitably, but it no longer
+just says no. Every decline carries the deal the agent *would* accept:
+
+```bash
+python3 -m solvent quote "Edge-AI in industrial robotics" --budget 8 --tokens 30000
+```
+
+```
+  Projected margin     $-7.93 (-99.1%)   floor 35.0%
+  Verdict              DECLINE — order $8 below minimum order size $15
+
+  Counter-offer        $25.00 at 36.3% margin
+    can deliver this brief as specified for $25.00
+```
+
+Two shapes, in order of preference: a **narrower scope** the customer's
+existing budget can buy (fewer market-data pulls first — they are the priciest
+resource), or, when no sellable scope fits, the **lowest price** that clears
+the margin floor. The offer is emitted as a `counter_offer` event next to the
+decline, so any channel — terminal, Telegram, the job API — can quote it back.
+`solvent quote` runs the whole gate as a dry run: nothing is written to the
+treasury, no Stripe call is made, and the exit code is 1 on a decline so
+scripts can gate on the verdict.
+
+### Spend policy — bounding *how* money moves, not just how much
+
+The guardrails gained two rules that shape the distribution of spend:
+
+| Rule | What it stops |
+|---|---|
+| **Per-vendor 24h cap** | one vendor — compromised, mispriced, or just buggy — absorbing the whole day's budget |
+| **Spend velocity** | a fulfilment loop that starts paying in a tight cycle, long before it drains the treasury |
+
+Limits are operator-tunable without touching code, via
+`.solvent/spend_policy.json` (a malformed file is ignored rather than allowed
+to widen the policy):
+
+```json
+{
+  "daily_budget_cents": 50000,
+  "per_vendor_daily_cents": 8000,
+  "max_txns_per_hour": 40,
+  "vendor_daily_overrides": { "market-data-api": 15000 }
+}
+```
+
+`python3 -m solvent guardrails` prints the policy in force, how much of each
+rolling window is used, per-vendor exposure against its cap, and every spend
+the policy blocked.
+
+### Backlog — which job to work on next
+
+A queue is not a plan. When several jobs are open and both cash and the 24h
+spend budget are finite, the order the agent works in decides what it earns.
+`python3 -m solvent backlog` ranks the open work the way a business would —
+and the async worker consumes the same ranking:
+
+1. **Finish what is already paid for.** Revenue is collected before cost is
+   incurred, so a paid job left unfinished is a refund waiting to happen.
+2. **Then best return on capital** — margin per cent of fulfilment cost, so a
+   $20 job costing $5 outranks a $90 job costing $60.
+3. **Never start work the treasury cannot fund.** A job whose fulfilment would
+   breach the spend budget or the cash reserve is *deferred* until the
+   treasury can pay for it — where the quote stage would otherwise decline it
+   permanently — and a cheaper job behind it can still take the remaining
+   capacity.
+
+```
+  #  JOB         STATUS                    PRICE     COST    ROI  TOPIC
+  1  J4          awaiting_payment         $99.00    $8.07  11.27   Edge-AI adoption in industri
+  2  J5          awaiting_payment        $125.00   $10.41  11.01   Unit economics of autonomous
+    ⏸ J2: fulfilment needs 845c; only 200c of spend capacity left (24h budget / cash reserve)
+```
 
 ---
 
@@ -351,8 +437,11 @@ solvent/
   agent.py         the orchestrator (earn → fulfil → spend → book)
   stages.py        idempotent stage machine (quote→paid→fulfill→deliver→spend)
   treasury.py      SQLite ledger / balance sheet
-  pricing.py       the margin gate
-  guardrails.py    NemoClaw-style spend policy
+  pricing.py       the margin gate (+ counter-offers on a decline)
+  quote_cmd.py     `solvent quote` — dry-run the margin gate
+  guardrails.py    NemoClaw-style spend policy (caps · vendor budgets · velocity)
+  guardrail_cmd.py `solvent guardrails` — policy in force + vendor exposure
+  backlog.py       capital-aware job prioritisation (`solvent backlog`)
   stripe_client.py two-sided Stripe layer (earn + spend)
   nemotron.py      NVIDIA Nemotron client (+ offline stub)
   service.py       the product: an on-demand research brief
