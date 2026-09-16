@@ -239,12 +239,14 @@ class TestPersistence(unittest.TestCase):
             rl1 = RateLimiter(db_path=db_path, burst_limit=10, hourly_limit=100, daily_limit=1000)
             for _ in range(3):
                 rl1.check("user:persist")
+            rl1.close()  # a "restart" releases the DB handle (required on Windows)
 
             # Second instance pointing at the same DB
             rl2 = RateLimiter(db_path=db_path, burst_limit=10, hourly_limit=100, daily_limit=1000)
             s = rl2.stats("user:persist")
             self.assertEqual(s["burst_count"], 3)
             self.assertEqual(s["hourly_count"], 3)
+            rl2.close()
 
     def test_ban_persists_across_restarts(self):
         import os
@@ -255,12 +257,14 @@ class TestPersistence(unittest.TestCase):
 
             rl1 = RateLimiter(db_path=db_path)
             rl1.ban("user:p2", duration_seconds=3600, reason="persistent ban")
+            rl1.close()  # a "restart" releases the DB handle (required on Windows)
 
             rl2 = RateLimiter(db_path=db_path)
             self.assertTrue(rl2.is_banned("user:p2"))
             ok, reason = rl2.check("user:p2")
             self.assertFalse(ok)
             self.assertIn("persistent ban", reason)
+            rl2.close()
 
 
 if __name__ == "__main__":

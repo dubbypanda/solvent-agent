@@ -11,7 +11,6 @@ Storage is a SQLite database so it is thread-safe, concurrent, and survives rest
 
 from __future__ import annotations
 
-import fcntl
 import json
 import sqlite3
 import threading
@@ -22,6 +21,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from . import _filelock
 from .paths import db_path as _db_path
 
 DB_PATH = _db_path()
@@ -234,14 +234,14 @@ class Treasury:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             f = open(self.lock_path, "w")
             try:
-                fcntl.flock(f, fcntl.LOCK_EX)
+                _filelock.acquire(f)
                 self._thread_local.lock_file = f
                 self._thread_local.lock_count = 1
                 yield
             finally:
                 self._thread_local.lock_count -= 1
                 if self._thread_local.lock_count == 0:
-                    fcntl.flock(f, fcntl.LOCK_UN)
+                    _filelock.release(f)
                     f.close()
                     self._thread_local.lock_file = None
 

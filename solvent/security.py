@@ -322,7 +322,11 @@ def safe_report_path(output_dir: Path, job_id: str) -> Path:
     base = output_dir.resolve()
     candidate = (base / f"{job_id}.md").resolve()
 
-    if not str(candidate).startswith(str(base) + "/") and candidate != base:
+    # Compare resolved paths structurally: a `startswith(str(base) + "/")` test
+    # hardcodes the POSIX separator, so on Windows (where resolve() returns
+    # backslash-separated strings) it rejected every legitimate report path and
+    # the escrow guard refunded every accepted job.
+    if not candidate.is_relative_to(base) and candidate != base:
         raise PathTraversalError(f"report path {candidate} escapes output directory {base}")
 
     return candidate
