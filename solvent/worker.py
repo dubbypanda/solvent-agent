@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from .agent import Solvent
+from .backlog import prioritise
 from .queue import list_claimable, resume_incomplete_jobs
 
 
@@ -21,7 +22,9 @@ def run_worker(
         agent.advance_job(job_id)
 
     while True:
-        jobs = list_claimable(agent.t)
+        # Work the backlog in business order — paid jobs first, then best
+        # return on capital — and hold back work the treasury cannot fund yet.
+        jobs = prioritise(list_claimable(agent.t), agent.t, agent.guard)
         for job in jobs:
             job_id = job["id"]
             if not agent.t.claim_job(job_id):
