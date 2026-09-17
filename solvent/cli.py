@@ -80,6 +80,13 @@ def print_event(e: dict):
         print(f"   ✋  {prefix} {C_RED}Declined:{C_RESET} {e['reason']}")
         time.sleep(0.4)
 
+    elif st == "counter_offer":
+        print(
+            f"   💡  {prefix} {C_YELLOW}Counter-offer:{C_RESET} {e['message']} "
+            f"{C_GREY}({e['margin_pct']}% margin){C_RESET}"
+        )
+        time.sleep(0.4)
+
     elif st == "invoice":
         show_spinner(0.6, f"Generating Stripe Payment Link for {jid}...")
         tag = "simulated" if e["simulated"] else "LIVE"

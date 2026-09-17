@@ -249,6 +249,8 @@ class StageRunner:
             "accept": q.accept,
             "reason": q.reason,
         }
+        if q.counter_offer:
+            result["counter_offer"] = q.counter_offer
         self.t.complete_stage(job_id, "quote", key, result, payload={"job_id": job_id})
         self.t.upsert_job(
             job_id,
@@ -259,7 +261,12 @@ class StageRunner:
         if not q.accept:
             self.t.upsert_job(job_id, "failed", error_reason=q.reason)
             self.t.upsert_metrics(job_id, decline_reason=q.reason, est_cost_cents=q.est_cost_cents)
-            return self._emit(stage="declined", job_id=job_id, reason=q.reason)
+            declined = self._emit(stage="declined", job_id=job_id, reason=q.reason)
+            # A decline is a negotiating position, not a dead end: tell the
+            # customer the price (or the scope) the agent *would* say yes to.
+            if q.counter_offer:
+                self._emit(stage="counter_offer", job_id=job_id, **q.counter_offer)
+            return declined
 
         with self.t.lock():
             if (

@@ -14,6 +14,12 @@ _Hermes-style project instructions (architecture + conventions). Operator rules 
 
 Margin gate (`pricing.py`) → Stripe checkout → Nemotron fulfill → deliver → guardrailed spend → book.
 
+A decline carries a counter-offer (narrower scope at the same budget, else the
+lowest price clearing the floor). `backlog.py` ranks open work — paid jobs
+first, then margin per cent of cost — and defers work the treasury cannot fund
+instead of letting the quote stage decline it. Spend policy is tunable in
+`.solvent/spend_policy.json`.
+
 Nemotron may chat and plan; treasury writes and Stripe stay in stages/guardrails.
 
 ## Commands
@@ -22,6 +28,8 @@ Nemotron may chat and plan; treasury writes and Stripe stay in stages/guardrails
 python -m solvent            # batch demo / onboarding (alias: run_demo.py)
 python -m solvent init|status|jobs|logs|config|upgrade
 python -m solvent serve|worker|telegram|doctor|pairing|workspace|finance|reconcile
+python -m solvent quote "<topic>" --budget 49   # dry-run the margin gate
+python -m solvent backlog|guardrails            # ranked queue / spend policy in force
 ```
 
 ## Conventions

@@ -7,11 +7,17 @@ projected margin does not clear the floor, the agent declines the work.
 
 This is the feature that makes SOLVENT a *business* and not just a bot: it is
 structurally incapable of working at a loss.
+
+Declining is not the end of the conversation, though. A shop that only ever
+says "no" leaves money on the table, so every decline also carries a
+**counter-offer**: either the price at which the agent *would* take the work,
+or a narrower scope it can deliver inside the customer's existing budget.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from typing import Any
 
 # Estimated cost of each resource the analyst might consume, in cents.
@@ -37,6 +43,9 @@ class Quote:
         accept: True if the job is accepted, False if declined.
         reason: Explanatory text for the decision.
         cost_breakdown: Itemized dictionary of estimated vendor costs.
+        counter_offer: On a decline, the deal the agent *would* accept
+            (see :func:`counter_offer`). ``None`` when the job was accepted or
+            when no viable alternative exists.
     """
 
     price_cents: int
@@ -46,6 +55,7 @@ class Quote:
     accept: bool
     reason: str
     cost_breakdown: dict[str, int]
+    counter_offer: dict[str, Any] | None = None
 
 
 @dataclass
@@ -59,6 +69,14 @@ class PricingPolicy:
 
     margin_floor_pct: float = 35.0  # refuse jobs under this projected margin
     min_price_cents: int = 1_500  # never sell a report under $15
+    #: Floor scope for a counter-offer: the thinnest brief still worth selling.
+    min_scope: dict[str, int] = field(
+        default_factory=lambda: {
+            "est_tokens": 4_000,
+            "market_data_calls": 0,
+            "web_search_calls": 3,
+        }
+    )
 
 
 def get_resource_costs() -> dict[str, int]:
@@ -94,7 +112,140 @@ def estimate_cost(job: dict[str, Any]) -> tuple[int, dict[str, int]]:
     return sum(breakdown.values()), breakdown
 
 
-def quote(job: dict[str, Any], policy: PricingPolicy | None = None) -> Quote:
+#: Unit cost of one step of each scope dimension, most expensive first. A
+#: counter-offer gives up the priciest resource before touching the cheap ones,
+#: so the narrowed brief keeps as much substance per cent as it can.
+_SCOPE_STEPS: tuple[tuple[str, int], ...] = (
+    ("market_data_calls", 1),
+    ("est_tokens", 1_000),
+    ("web_search_calls", 1),
+)
+
+
+def job_scope(job: dict[str, Any]) -> dict[str, int]:
+    """The three resource dials a brief can be scoped on, with defaults filled in."""
+    return {
+        "est_tokens": int(job.get("est_tokens", 8_000)),
+        "market_data_calls": int(job.get("market_data_calls", 2)),
+        "web_search_calls": int(job.get("web_search_calls", 6)),
+    }
+
+
+def min_viable_price_cents(est_cost_cents: int, policy: PricingPolicy | None = None) -> int | None:
+    """The lowest whole-dollar price that clears both the margin floor and the minimum order size.
+
+    Returns ``None`` when the margin floor is 100% or higher, where no finite
+    price can ever clear it.
+    """
+    applied = policy or PricingPolicy()
+    if applied.margin_floor_pct >= 100:
+        return None
+    required = est_cost_cents / (1 - applied.margin_floor_pct / 100)
+    price = max(math.ceil(required), applied.min_price_cents)
+    # Quote in whole dollars — rounding up only widens the margin.
+    return math.ceil(price / 100) * 100
+
+
+def scoped_alternative(
+    job: dict[str, Any], policy: PricingPolicy | None = None
+) -> tuple[dict[str, int], Quote] | None:
+    """Find the richest narrowed scope this job's budget *can* buy.
+
+    Resources are given up one step at a time, priciest dimension first, until
+    the margin gate accepts the job at the customer's own budget. Returns the
+    winning scope and its quote, or ``None`` if even the floor scope is
+    unaffordable (or the budget is below the minimum order size, where no
+    amount of narrowing helps).
+    """
+    applied = policy or PricingPolicy()
+    budget = int(job.get("budget_cents", 0) or 0)
+    if budget < applied.min_price_cents:
+        return None
+
+    scope = job_scope(job)
+    floor = {**PricingPolicy().min_scope, **applied.min_scope}
+
+    while True:
+        trial = quote({**job, **scope}, applied, with_counter_offer=False)
+        if trial.accept:
+            return scope, trial
+        for dimension, step in _SCOPE_STEPS:
+            if scope[dimension] - step >= floor.get(dimension, 0):
+                scope = {**scope, dimension: scope[dimension] - step}
+                break
+        else:
+            return None  # already at the floor scope and still unprofitable
+
+
+def counter_offer(
+    job: dict[str, Any], policy: PricingPolicy | None = None
+) -> dict[str, Any] | None:
+    """Build the deal the agent *would* accept for a job it just declined.
+
+    Two shapes, in order of preference:
+
+    * ``scope`` — a narrower brief that fits the customer's existing budget.
+      Nobody has to find more money, so this is offered first.
+    * ``price`` — the same brief at the lowest price that clears the margin
+      floor, for when no sellable scope fits the budget.
+
+    Returns ``None`` when neither is possible.
+    """
+    applied = policy or PricingPolicy()
+    budget = int(job.get("budget_cents", 0) or 0)
+
+    alternative = scoped_alternative(job, applied)
+    if alternative is not None:
+        scope, scoped_quote = alternative
+        current = job_scope(job)
+        changes = {k: v for k, v in scope.items() if current[k] != v}
+        return {
+            "kind": "scope",
+            "price_cents": scoped_quote.price_cents,
+            "est_cost_cents": scoped_quote.est_cost_cents,
+            "margin_pct": scoped_quote.margin_pct,
+            "scope": scope,
+            "scope_changes": changes,
+            "message": (
+                f"can deliver a narrower brief for ${budget / 100:.2f} ({_describe_scope(changes)})"
+            ),
+        }
+
+    est_cost, _ = estimate_cost(job)
+    price = min_viable_price_cents(est_cost, applied)
+    if price is None or price <= budget:
+        return None
+    priced = quote({**job, "budget_cents": price}, applied, with_counter_offer=False)
+    if not priced.accept:
+        return None
+    return {
+        "kind": "price",
+        "price_cents": price,
+        "est_cost_cents": priced.est_cost_cents,
+        "margin_pct": priced.margin_pct,
+        "scope": None,
+        "scope_changes": {},
+        "message": f"can deliver this brief as specified for ${price / 100:.2f}",
+    }
+
+
+def _describe_scope(changes: dict[str, int]) -> str:
+    labels = {
+        "est_tokens": "tokens",
+        "market_data_calls": "market-data pulls",
+        "web_search_calls": "web searches",
+    }
+    if not changes:
+        return "same scope"
+    return ", ".join(f"{labels.get(k, k)} → {v:,}" for k, v in changes.items())
+
+
+def quote(
+    job: dict[str, Any],
+    policy: PricingPolicy | None = None,
+    *,
+    with_counter_offer: bool = True,
+) -> Quote:
     """Evaluate if a job's budget is acceptable according to the pricing policy.
 
     The budget is treated as the target price. The function checks whether this price
@@ -103,6 +254,8 @@ def quote(job: dict[str, Any], policy: PricingPolicy | None = None) -> Quote:
     Args:
         job: A dictionary containing the job details (e.g. budget_cents).
         policy: The pricing policy to apply. Defaults to a new PricingPolicy instance.
+        with_counter_offer: Attach a counter-offer to a declined quote. Set
+            ``False`` for the internal evaluations that build those offers.
 
     Returns:
         A Quote object indicating whether the job was accepted or rejected.
@@ -119,34 +272,21 @@ def quote(job: dict[str, Any], policy: PricingPolicy | None = None) -> Quote:
     margin = price - est_cost
     margin_pct = round(100 * margin / price, 1) if price else -100.0
 
+    def _decline(reason: str) -> Quote:
+        declined = Quote(price, est_cost, margin, margin_pct, False, reason, breakdown)
+        if with_counter_offer:
+            declined.counter_offer = counter_offer(job, applied_policy)
+        return declined
+
     if budget < applied_policy.min_price_cents:
-        return Quote(
-            price,
-            est_cost,
-            margin,
-            margin_pct,
-            False,
-            f"order ${budget / 100:.0f} below minimum order size ${applied_policy.min_price_cents / 100:.0f}",
-            breakdown,
+        return _decline(
+            f"order ${budget / 100:.0f} below minimum order size "
+            f"${applied_policy.min_price_cents / 100:.0f}"
         )
     if budget < est_cost:
-        return Quote(
-            price,
-            est_cost,
-            margin,
-            margin_pct,
-            False,
-            "customer budget below fulfilment cost",
-            breakdown,
-        )
+        return _decline("customer budget below fulfilment cost")
     if margin_pct < applied_policy.margin_floor_pct:
-        return Quote(
-            price,
-            est_cost,
-            margin,
-            margin_pct,
-            False,
-            f"projected margin {margin_pct}% below floor {applied_policy.margin_floor_pct}%",
-            breakdown,
+        return _decline(
+            f"projected margin {margin_pct}% below floor {applied_policy.margin_floor_pct}%"
         )
     return Quote(price, est_cost, margin, margin_pct, True, "accepted", breakdown)
