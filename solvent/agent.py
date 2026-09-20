@@ -8,6 +8,9 @@ For each inbound job the agent runs an idempotent stage machine:
   4. DELIVERS hosted brief + optional email
   5. SPENDS on vendors (guardrail-screened)
   6. BOOKS P&L into the treasury
+
+Each job's realized cost is booked back into the margin gate: the next quote
+is calibrated on what the last ones actually cost (see `calibration.py`).
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import os
 import time
 from collections.abc import Callable
 
+from .calibration import calibration_factor
 from .guardrails import Guardrails
 from .pricing import PricingPolicy
 from .stages import StageRunner, validate_and_coerce_job
@@ -38,7 +42,9 @@ class Solvent:
             self.t.seed(seed_cents)
         self.guard = Guardrails(self.t)
         self.stripe = StripeClient()
-        self.pricing = PricingPolicy()
+        # Quotes are marked up when realized COGS have been running above the
+        # static cost model; a fresh treasury has no history, so this is 1.0.
+        self.pricing = PricingPolicy(cost_calibration=calibration_factor(self.t))
         self.log: list[dict] = []
         self.on_event = on_event
         if sync_payment is None:
