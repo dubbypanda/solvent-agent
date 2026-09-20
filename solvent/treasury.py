@@ -29,6 +29,12 @@ DB_PATH = _db_path()
 EntryKind = Literal["revenue", "expense", "capital"]
 
 
+#: Vendor tag for money returned to a customer. A refund is an outflow, but it
+#: is not operating spend: the spend policy's budgets govern what the agent
+#: pays its vendors, and a refund must not eat into that (see guardrails.py).
+REFUND_VENDOR = "customer-refund"
+
+
 @dataclass
 class LedgerEntry:
     kind: EntryKind  # revenue (money in), expense (money out), capital (seed)

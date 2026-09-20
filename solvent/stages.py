@@ -14,7 +14,7 @@ from .observability import log_event
 from .pricing import PricingPolicy, quote
 from .security import SOLVENTSecurityError, sanitise_job
 from .stripe_client import StripeClient
-from .treasury import Treasury
+from .treasury import REFUND_VENDOR, Treasury
 
 
 def _base_url() -> str:
@@ -549,6 +549,7 @@ class StageRunner:
                     amount_cents=paid_amount,
                     memo=f"Refund for job {job_id} due to block/failure: {reason}",
                     job_id=job_id,
+                    vendor=REFUND_VENDOR,
                     stripe_ref=refund["id"],
                 )
                 self.t.complete_stage(job_id, "refund", refund_key, {"refund_id": refund["id"]})
