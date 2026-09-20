@@ -233,6 +233,9 @@ See [docs/PRODUCTION.md](docs/PRODUCTION.md) for Stripe webhook setup, SMTP deli
 python3 -m solvent quote "AI inference chips, 2026" --budget 49   # dry-run the margin gate
 python3 -m solvent backlog                # rank open jobs by return on capital
 python3 -m solvent guardrails             # spend policy in force + vendor exposure
+python3 -m solvent customers              # lifetime value, repeat rate, margin by customer
+python3 -m solvent costs                  # estimated vs realized COGS + calibration
+python3 -m solvent simulate               # run the policy over synthetic demand
 python3 -m solvent reconcile --since 7d   # Stripe ↔ ledger drift check
 python3 -m solvent finance                # income statement, unit economics, runway
 python3 -m solvent finance --json         # machine-readable report
@@ -331,6 +334,51 @@ and the async worker consumes the same ranking:
   2  J5          awaiting_payment        $125.00   $10.41  11.01   Unit economics of autonomous
     ⏸ J2: fulfilment needs 845c; only 200c of spend capacity left (24h budget / cash reserve)
 ```
+
+### Knowing the business
+
+Three more views the agent keeps on itself.
+
+**`solvent customers` — who actually pays.** Every job carries an email and
+every ledger entry carries a job id, so the two join into lifetime value per
+customer: revenue, COGS, net, repeat rate, and the share of revenue riding on
+the single best customer (the concentration risk). `--email <addr>` drills into
+one customer's job history.
+
+```
+  CUSTOMER                           JOBS    REVENUE        NET  MARGIN  LAST
+   analyst@logistics.example            1    $125.00    $124.45   99.6%  just now
+  ↻analyst@fund.example                 2     $98.00     $96.90   98.9%  just now
+
+  Customers 5  ·  repeat 1 (20.0%)  ·  revenue per customer $79.40
+  Top customer is 31.5% of revenue
+```
+
+**`solvent costs` — a margin gate that learns.** The stage machine already
+recorded what each job really cost; now that feeds back into the next quote.
+When realized COGS run *hotter* than the static model, quotes are marked up by
+the observed ratio (clamped, and only after five fulfilled jobs) so the margin
+floor keeps meaning what it says. When they run *cooler*, nothing happens
+automatically — an optimistic sample is not a reason to quote closer to the
+bone, and cutting prices stays an operator decision.
+
+**`solvent simulate` — try the policy before it touches money.** Margin floor,
+transaction cap, daily budget, cash reserve: every one is a number somebody
+picks, and picking them on a live treasury means finding out the expensive way.
+This runs the same `pricing` and `guardrails` kernel over synthetic demand,
+many times, and reports the distribution — acceptance rate, net per day, ending
+balance percentiles, how often the business ends below its reserve, and which
+rule did the blocking. One trial is one day of trading, so the rolling 24h
+budget and the velocity rule bind the way they would in a real day.
+
+```bash
+python3 -m solvent simulate                            # the policy as it stands
+python3 -m solvent simulate --cost-multiplier 6        # what if vendors got 6× pricier
+python3 -m solvent simulate --margin-floor 55 --json   # tune the floor, machine-readable
+```
+
+Nothing in a simulation touches the treasury, Stripe, or Nemotron, and the same
+`--seed` always reproduces the same run.
 
 ---
 
@@ -442,6 +490,9 @@ solvent/
   guardrails.py    NemoClaw-style spend policy (caps · vendor budgets · velocity)
   guardrail_cmd.py `solvent guardrails` — policy in force + vendor exposure
   backlog.py       capital-aware job prioritisation (`solvent backlog`)
+  calibration.py   realized COGS → cost-model calibration (`solvent costs`)
+  customers.py     lifetime value and repeat rate (`solvent customers`)
+  simulate.py      policy simulator over synthetic demand (`solvent simulate`)
   stripe_client.py two-sided Stripe layer (earn + spend)
   nemotron.py      NVIDIA Nemotron client (+ offline stub)
   service.py       the product: an on-demand research brief

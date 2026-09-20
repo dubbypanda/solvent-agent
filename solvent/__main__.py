@@ -21,6 +21,9 @@ Commands:
   upgrade       check for newer version on PyPI; --check exits 1 if outdated
   jobs          list/show/retry/cancel jobs (jobs --help for sub-commands)
   backlog       rank open jobs by return on capital and fundability
+  customers     lifetime value, repeat rate, and margin by customer
+  costs         estimated vs realized COGS and the calibration it implies
+  simulate      run pricing + spend policy over synthetic demand, many times
   logs          tail the structured event log; -f to follow, --job/--stage to filter
   config        show/get/set/reset local configuration values
   serve         webhooks + job API + hosted briefs
@@ -82,6 +85,21 @@ def main() -> None:
         from .backlog import main as backlog_main
 
         backlog_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "customers":
+        sys.argv.pop(1)
+        from .customers import main as customers_main
+
+        customers_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "costs":
+        sys.argv.pop(1)
+        from .calibration import main as costs_main
+
+        costs_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "simulate":
+        sys.argv.pop(1)
+        from .simulate import main as simulate_main
+
+        simulate_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "logs":
         sys.argv.pop(1)
         from .logs import main as logs_main
