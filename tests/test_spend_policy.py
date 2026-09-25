@@ -14,7 +14,7 @@ import pytest
 
 from solvent.guardrail_cmd import format_guardrails, gather
 from solvent.guardrails import Guardrails, SpendPolicy, load_spend_policy
-from solvent.treasury import LedgerEntry, Treasury
+from solvent.treasury import REFUND_VENDOR, LedgerEntry, Treasury
 
 
 def _expense(vendor: str, cents: int, *, age_seconds: float = 0.0) -> LedgerEntry:
@@ -185,3 +185,63 @@ def test_gather_lists_blocked_spends(tmp_path):
     assert len(data["recent_blocks"]) == 1
     assert data["recent_blocks"][0]["payload"]["rule"] == "vendor_daily_budget"
     assert "vendor_daily_budget" in format_guardrails(data)
+
+
+# --- refunds are not operating spend ---------------------------------------
+
+
+def test_refunds_do_not_consume_the_daily_spend_budget(guard):
+    guard.t.entries = [
+        _expense("nvidia-nemotron", 5_000),
+        LedgerEntry(
+            kind="expense",
+            amount_cents=20_000,
+            memo="Refund for job J1",
+            vendor=REFUND_VENDOR,
+            ts=time.time(),
+        ),
+    ]
+    # Only the vendor payment counts against the $250 daily budget.
+    assert guard._spent_last_24h() == 5_000
+    assert guard.evaluate(1_000, "market-data-api").allowed
+
+
+def test_refunds_do_not_count_towards_the_velocity_cap():
+    treasury = MagicMock()
+    treasury.balance_cents.return_value = 100_000
+    treasury.entries = [
+        LedgerEntry(
+            kind="expense",
+            amount_cents=100,
+            memo="refund",
+            vendor=REFUND_VENDOR,
+            ts=time.time(),
+        )
+        for _ in range(9)
+    ]
+    guard = Guardrails(treasury, SpendPolicy(max_txns_per_hour=5))
+    assert guard.evaluate(100, "web-search-api").allowed
+
+
+def test_unattributed_expenses_still_count_as_spend(guard):
+    """Only refunds are exempt; any other outflow still bounds the budget."""
+    guard.t.entries = [LedgerEntry(kind="expense", amount_cents=7_000, memo="misc", ts=time.time())]
+    assert guard._spent_last_24h() == 7_000
+
+
+def test_a_refunded_job_leaves_budget_to_fulfil_the_next_one(tmp_path):
+    """The loop the simulator exposed: refunds used to throttle real work."""
+    treasury = Treasury(path=tmp_path / "ledger.db")
+    treasury.seed(100_000)
+    treasury.earn(20_000, "paid", job_id="J1", stripe_ref="pi_1")
+    treasury.spend(
+        20_000,
+        "Refund for job J1 due to block/failure",
+        job_id="J1",
+        vendor=REFUND_VENDOR,
+        stripe_ref="re_1",
+    )
+    guard = Guardrails(treasury, SpendPolicy())
+
+    assert guard._spent_last_24h() == 0
+    assert guard.evaluate(4_000, "nvidia-nemotron").allowed

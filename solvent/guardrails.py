@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .treasury import REFUND_VENDOR
+
 if TYPE_CHECKING:
     from .treasury import Treasury
 
@@ -175,9 +177,14 @@ class Guardrails:
     def _spent_last_24h(self, vendor: str | None = None) -> int:
         """Sum of expenses in the last 24 hours, optionally for one vendor only.
 
+        Money refunded to a customer is an outflow but not operating spend, so
+        it is left out of the total: a run of refunds must not exhaust the
+        budget the agent needs to fulfil the work it *has* been paid for. The
+        cash reserve rule still accounts for it, because it reads the balance.
+
         Args:
             vendor: Restrict the total to this vendor. ``None`` totals every
-                vendor (and un-attributed expenses such as refunds).
+                vendor payment.
 
         Returns:
             The total spend in cents.
@@ -186,13 +193,19 @@ class Guardrails:
         return sum(
             e.amount_cents
             for e in self.t.entries
-            if e.kind == "expense" and e.ts >= cutoff and (vendor is None or e.vendor == vendor)
+            if e.kind == "expense"
+            and e.ts >= cutoff
+            and (e.vendor == vendor if vendor is not None else e.vendor != REFUND_VENDOR)
         )
 
     def _txns_last_hour(self) -> int:
         """How many payments the agent has made in the last rolling hour."""
         cutoff = time.time() - 3_600
-        return sum(1 for e in self.t.entries if e.kind == "expense" and e.ts >= cutoff)
+        return sum(
+            1
+            for e in self.t.entries
+            if e.kind == "expense" and e.ts >= cutoff and e.vendor != REFUND_VENDOR
+        )
 
     def vendor_exposure(self) -> list[dict[str, Any]]:
         """Per-vendor spend against its 24h cap, worst headroom first.

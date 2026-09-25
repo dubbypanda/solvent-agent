@@ -29,6 +29,12 @@ DB_PATH = _db_path()
 EntryKind = Literal["revenue", "expense", "capital"]
 
 
+#: Vendor tag for money returned to a customer. A refund is an outflow, but it
+#: is not operating spend: the spend policy's budgets govern what the agent
+#: pays its vendors, and a refund must not eat into that (see guardrails.py).
+REFUND_VENDOR = "customer-refund"
+
+
 @dataclass
 class LedgerEntry:
     kind: EntryKind  # revenue (money in), expense (money out), capital (seed)
@@ -164,6 +170,15 @@ class Treasury:
                         ts REAL NOT NULL
                     )
                 """)
+            # Payment chasing needs the age of the *original* link and how many
+            # times the customer has been nudged, neither of which survives a
+            # status update on its own.
+            for col, ctype in (
+                ("created_at", "REAL"),
+                ("reminders_sent", "INTEGER DEFAULT 0"),
+                ("last_reminder_at", "REAL"),
+            ):
+                self._ensure_column(conn, "stripe_checkout", col, ctype)
             conn.execute("""
                     CREATE TABLE IF NOT EXISTS events (
                         id TEXT PRIMARY KEY,
@@ -665,15 +680,54 @@ class Treasury:
             return [dict(r) for r in rows]
 
     def upsert_checkout(self, job_id: str, session_id: str, checkout_url: str, status: str) -> None:
+        """Record a checkout link, keeping the age and reminder count it already had."""
+        now = time.time()
         with self.lock(), self._conn() as conn, conn:
             conn.execute(
                 """
-                        INSERT OR REPLACE INTO stripe_checkout
-                        (job_id, session_id, checkout_url, status, ts)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO stripe_checkout
+                        (job_id, session_id, checkout_url, status, ts, created_at, reminders_sent)
+                        VALUES (?, ?, ?, ?, ?, ?, 0)
+                        ON CONFLICT(job_id) DO UPDATE SET
+                            session_id = excluded.session_id,
+                            checkout_url = excluded.checkout_url,
+                            status = excluded.status,
+                            ts = excluded.ts
                     """,
-                (job_id, session_id, checkout_url, status, time.time()),
+                (job_id, session_id, checkout_url, status, now, now),
             )
+
+    def record_checkout_reminder(self, job_id: str, ts: float | None = None) -> int:
+        """Count one payment reminder against a checkout; returns the new total."""
+        stamp = time.time() if ts is None else ts
+        with self.lock(), self._conn() as conn, conn:
+            conn.execute(
+                """
+                        UPDATE stripe_checkout
+                        SET reminders_sent = COALESCE(reminders_sent, 0) + 1,
+                            last_reminder_at = ?
+                        WHERE job_id = ?
+                    """,
+                (stamp, job_id),
+            )
+            row = conn.execute(
+                "SELECT reminders_sent FROM stripe_checkout WHERE job_id = ?", (job_id,)
+            ).fetchone()
+            return (row["reminders_sent"] if row else 0) or 0
+
+    def list_checkouts(self, status: str | None = None) -> list[dict]:
+        """Every recorded checkout, oldest first, optionally filtered by status."""
+        with self.lock(), self._conn() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM stripe_checkout WHERE status = ? ORDER BY COALESCE(created_at, ts) ASC",
+                    (status,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM stripe_checkout ORDER BY COALESCE(created_at, ts) ASC"
+                ).fetchall()
+            return [dict(r) for r in rows]
 
     def get_checkout(self, job_id: str) -> dict | None:
         with self.lock(), self._conn() as conn:

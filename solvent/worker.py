@@ -6,6 +6,7 @@ import time
 
 from .agent import Solvent
 from .backlog import prioritise
+from .checkout import sweep as sweep_checkouts
 from .queue import list_claimable, resume_incomplete_jobs
 
 
@@ -22,6 +23,13 @@ def run_worker(
         agent.advance_job(job_id)
 
     while True:
+        # Chase or close unpaid links before picking up work: an expired job
+        # drops out of the queue instead of being polled forever.
+        try:
+            sweep_checkouts(agent.t, stripe=agent.stripe)
+        except Exception:
+            pass
+
         # Work the backlog in business order — paid jobs first, then best
         # return on capital — and hold back work the treasury cannot fund yet.
         jobs = prioritise(list_claimable(agent.t), agent.t, agent.guard)

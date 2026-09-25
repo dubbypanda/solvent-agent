@@ -253,6 +253,20 @@ class StripeClient:
             "job_id": job_id,
         }
 
+    def expire_checkout_session(self, session_id: str) -> dict:
+        """Close a checkout session so an abandoned link cannot be paid later.
+
+        A paid or already-expired session cannot be expired again, and that is
+        not an error worth failing a sweep over.
+        """
+        if not session_id or not self.live or session_id.startswith("cs_sim_"):
+            return {"id": session_id, "status": "expired", "simulated": True}
+        try:
+            session = stripe.checkout.Session.expire(session_id)
+            return {"id": session_id, "status": self._session_value(session, "status", "expired")}
+        except Exception as exc:
+            return {"id": session_id, "status": "error", "error": str(exc)}
+
     def create_payment_link(self, name: str, amount_cents: int, customer_email: str) -> dict:
         """Create a real Stripe Payment Link (test mode) or simulate one."""
         # ACCOUNT TAKEOVER — validate email before it reaches Stripe or the ledger

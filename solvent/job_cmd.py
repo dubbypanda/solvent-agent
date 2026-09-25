@@ -27,6 +27,7 @@ _STATUS_EMOJI = {
     "completed": "✓ ",
     "failed": "✗ ",
     "cancelled": "⊘ ",
+    "expired": "⌛",
 }
 
 _ALL_STATUSES = list(_STATUS_EMOJI.keys())

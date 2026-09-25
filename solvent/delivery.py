@@ -362,6 +362,70 @@ def _esc(text: str) -> str:
     )
 
 
+def send_email(to_email: str, subject: str, body: str, *, outbox_name: str) -> dict:
+    """Send one message via SMTP, or write it to the outbox in simulate mode.
+
+    Without `SMTP_HOST` the agent has no way to post mail, so the message is
+    written to `data/outbox/<name>.eml` instead of being silently dropped.
+    """
+    host = os.environ.get("SMTP_HOST", "").strip()
+    if not host:
+        OUTBOX_DIR.mkdir(parents=True, exist_ok=True)
+        eml_path = OUTBOX_DIR / f"{outbox_name}.eml"
+        eml_path.write_text(
+            f"To: {to_email}\nSubject: {subject}\n\n{body}",
+            encoding="utf-8",
+        )
+        return {"simulated": True, "path": str(eml_path), "to": to_email}
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    user = os.environ.get("SMTP_USER", "")
+    password = os.environ.get("SMTP_PASS", "")
+    from_addr = os.environ.get("SMTP_FROM", user or "agent@solvent.local")
+    msg = MIMEMultipart()
+    msg["From"] = from_addr
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+    with smtplib.SMTP(host, port, timeout=30) as server:
+        server.starttls()
+        if user and password:
+            server.login(user, password)
+        server.sendmail(from_addr, [to_email], msg.as_string())
+    return {"simulated": False, "to": to_email}
+
+
+def send_payment_reminder(
+    to_email: str,
+    job_id: str,
+    topic: str,
+    checkout_url: str,
+    amount_cents: int,
+    *,
+    expires_in_hours: float | None = None,
+    reminder_number: int = 1,
+) -> dict:
+    """Nudge a customer whose checkout link is still unpaid."""
+    from .treasury import fmt
+
+    subject = f"Still interested? Your SOLVENT brief is ready to start ({job_id})"
+    lines = [
+        f'Your research brief "{topic}" is quoted at {fmt(amount_cents)} and the',
+        "payment link is still open:",
+        "",
+        checkout_url,
+        "",
+        "Work starts the moment payment clears.",
+    ]
+    if expires_in_hours is not None:
+        lines += ["", f"The link expires in about {round(expires_in_hours)} hour(s)."]
+    return send_email(
+        to_email,
+        subject,
+        "\n".join(lines),
+        outbox_name=f"{job_id}-reminder-{reminder_number}",
+    )
+
+
 def send_brief_email(
     to_email: str,
     job_id: str,

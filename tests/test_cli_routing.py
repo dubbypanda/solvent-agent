@@ -78,6 +78,12 @@ class TestCliRouting(unittest.TestCase):
         self.assertIn("quote", out)
         self.assertIn("backlog", out)
         self.assertIn("guardrails", out)
+        self.assertIn("customers", out)
+        self.assertIn("costs", out)
+        self.assertIn("simulate", out)
+        self.assertIn("checkouts", out)
+        self.assertIn("intake", out)
+        self.assertIn("optimize", out)
         mock_demo.assert_not_called()
 
     # ── additional subcommand routes ──────────────────────────────────────
@@ -134,6 +140,36 @@ class TestCliRouting(unittest.TestCase):
 
     def test_guardrails_routes_to_guardrail_cmd(self):
         target, demo = self._routes_to(["solvent", "guardrails"], "guardrail_cmd")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_customers_routes_to_customers(self):
+        target, demo = self._routes_to(["solvent", "customers"], "customers")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_costs_routes_to_calibration(self):
+        target, demo = self._routes_to(["solvent", "costs"], "calibration")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_simulate_routes_to_simulate(self):
+        target, demo = self._routes_to(["solvent", "simulate"], "simulate")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_checkouts_routes_to_checkout(self):
+        target, demo = self._routes_to(["solvent", "checkouts"], "checkout")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_intake_routes_to_intake(self):
+        target, demo = self._routes_to(["solvent", "intake"], "intake")
+        target.assert_called_once()
+        demo.assert_not_called()
+
+    def test_optimize_routes_to_optimize(self):
+        target, demo = self._routes_to(["solvent", "optimize"], "optimize")
         target.assert_called_once()
         demo.assert_not_called()
 

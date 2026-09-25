@@ -7,18 +7,30 @@ import os
 import time
 from collections.abc import Callable
 from dataclasses import asdict
+from typing import Any
 
 from . import delivery, service, tools
 from .guardrails import GuardrailError, Guardrails
+from .intake import decline_reason, screen_job
 from .observability import log_event
 from .pricing import PricingPolicy, quote
 from .security import SOLVENTSecurityError, sanitise_job
 from .stripe_client import StripeClient
-from .treasury import Treasury
+from .treasury import REFUND_VENDOR, Treasury
 
 
 def _base_url() -> str:
     return os.environ.get("SOLVENT_BASE_URL", "http://127.0.0.1:8787").rstrip("/")
+
+
+def _job_id_of(submitted: Any, validated: dict | None) -> str:
+    """The best job id available for an event, even when validation failed."""
+    for candidate in (validated, submitted):
+        if isinstance(candidate, dict):
+            job_id = candidate.get("id")
+            if isinstance(job_id, str) and job_id.strip():
+                return job_id
+    return "unknown"
 
 
 def validate_and_coerce_job(job: dict, treasury: Treasury) -> tuple[dict | None, str | None]:
@@ -75,6 +87,23 @@ def validate_and_coerce_job(job: dict, treasury: Treasury) -> tuple[dict | None,
             return None, f"{param} must be a valid numeric value"
 
     job.setdefault("customer_email", "client@example.com")
+
+    # Commercial screen: duplicates, bursts, oversized orders, unreachable
+    # customers. Runs before pricing, so a screened-out job costs nothing.
+    screen = screen_job(job, treasury)
+    if not screen.allowed:
+        reason = decline_reason(screen)
+        treasury.upsert_job(
+            job_id,
+            "failed",
+            topic=job["topic"],
+            budget_cents=job["budget_cents"],
+            customer_email=job["customer_email"],
+            error_reason=reason,
+        )
+        treasury.upsert_metrics(job_id, decline_reason=reason)
+        return None, reason
+
     treasury.upsert_job(
         job_id,
         "pending_quote",
@@ -155,11 +184,9 @@ class StageRunner:
     def run_job(self, job: dict) -> dict:
         validated, err = validate_and_coerce_job(job, self.t)
         if err:
-            return self._emit(
-                stage="declined",
-                job_id=validated.get("id", "unknown") if validated else "unknown",
-                reason=err,
-            )
+            # Validation and intake failures still belong to the job that was
+            # submitted, so the decline is traceable in its own event log.
+            return self._emit(stage="declined", job_id=_job_id_of(job, validated), reason=err)
         assert validated is not None
 
         q = self._stage_quote(validated)
@@ -549,6 +576,7 @@ class StageRunner:
                     amount_cents=paid_amount,
                     memo=f"Refund for job {job_id} due to block/failure: {reason}",
                     job_id=job_id,
+                    vendor=REFUND_VENDOR,
                     stripe_ref=refund["id"],
                 )
                 self.t.complete_stage(job_id, "refund", refund_key, {"refund_id": refund["id"]})

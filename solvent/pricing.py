@@ -65,10 +65,16 @@ class PricingPolicy:
     Attributes:
         margin_floor_pct: The minimum profit margin required to accept a job.
         min_price_cents: The minimum price (order size) in cents for any job.
+        cost_calibration: Multiplier on estimated cost, learned from realized
+            COGS. Applied so a drifting cost model cannot quietly eat the
+            margin floor.
     """
 
     margin_floor_pct: float = 35.0  # refuse jobs under this projected margin
     min_price_cents: int = 1_500  # never sell a report under $15
+    #: Multiplier applied to every cost estimate, learned from realized COGS
+    #: (see `calibration.py`). 1.0 is the static model, untouched.
+    cost_calibration: float = 1.0
     #: Floor scope for a counter-offer: the thinnest brief still worth selling.
     min_scope: dict[str, int] = field(
         default_factory=lambda: {
@@ -211,7 +217,7 @@ def counter_offer(
             ),
         }
 
-    est_cost, _ = estimate_cost(job)
+    est_cost, _ = calibrated_cost(job, applied)
     price = min_viable_price_cents(est_cost, applied)
     if price is None or price <= budget:
         return None
@@ -240,6 +246,23 @@ def _describe_scope(changes: dict[str, int]) -> str:
     return ", ".join(f"{labels.get(k, k)} → {v:,}" for k, v in changes.items())
 
 
+def calibrated_cost(
+    job: dict[str, Any], policy: PricingPolicy | None = None
+) -> tuple[int, dict[str, int]]:
+    """Estimated cost with the policy's calibration applied, itemised.
+
+    The breakdown is scaled line by line and re-totalled from the lines, so the
+    items a customer or an operator sees always add up to the quoted cost.
+    """
+    applied = policy or PricingPolicy()
+    raw_total, breakdown = estimate_cost(job)
+    factor = applied.cost_calibration
+    if factor == 1.0:
+        return raw_total, breakdown
+    scaled = {k: round(v * factor) for k, v in breakdown.items()}
+    return sum(scaled.values()), scaled
+
+
 def quote(
     job: dict[str, Any],
     policy: PricingPolicy | None = None,
@@ -261,7 +284,7 @@ def quote(
         A Quote object indicating whether the job was accepted or rejected.
     """
     applied_policy = policy or PricingPolicy()
-    est_cost, breakdown = estimate_cost(job)
+    est_cost, breakdown = calibrated_cost(job, applied_policy)
 
     # We can never charge more than the customer is willing to pay, so the
     # budget IS the price. The gate then decides whether that price clears
