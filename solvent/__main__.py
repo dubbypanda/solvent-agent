@@ -24,6 +24,9 @@ Commands:
   customers     lifetime value, repeat rate, and margin by customer
   costs         estimated vs realized COGS and the calibration it implies
   simulate      run pricing + spend policy over synthetic demand, many times
+  checkouts     unpaid links: age, reminders, expiry (--sweep to chase now)
+  intake        the screen inbound jobs pass before they are quoted
+  optimize      search margin floor x min order for the best policy
   logs          tail the structured event log; -f to follow, --job/--stage to filter
   config        show/get/set/reset local configuration values
   serve         webhooks + job API + hosted briefs
@@ -100,6 +103,21 @@ def main() -> None:
         from .simulate import main as simulate_main
 
         simulate_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "checkouts":
+        sys.argv.pop(1)
+        from .checkout import main as checkouts_main
+
+        checkouts_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "intake":
+        sys.argv.pop(1)
+        from .intake import main as intake_main
+
+        intake_main()
+    elif len(sys.argv) > 1 and sys.argv[1] == "optimize":
+        sys.argv.pop(1)
+        from .optimize import main as optimize_main
+
+        optimize_main()
     elif len(sys.argv) > 1 and sys.argv[1] == "logs":
         sys.argv.pop(1)
         from .logs import main as logs_main

@@ -236,6 +236,9 @@ python3 -m solvent guardrails             # spend policy in force + vendor expos
 python3 -m solvent customers              # lifetime value, repeat rate, margin by customer
 python3 -m solvent costs                  # estimated vs realized COGS + calibration
 python3 -m solvent simulate               # run the policy over synthetic demand
+python3 -m solvent optimize               # search margin floor x min order for the best policy
+python3 -m solvent checkouts              # unpaid links: age, reminders, expiry
+python3 -m solvent intake                 # the screen inbound jobs pass before pricing
 python3 -m solvent reconcile --since 7d   # Stripe ↔ ledger drift check
 python3 -m solvent finance                # income statement, unit economics, runway
 python3 -m solvent finance --json         # machine-readable report
@@ -380,6 +383,52 @@ python3 -m solvent simulate --margin-floor 55 --json   # tune the floor, machine
 Nothing in a simulation touches the treasury, Stripe, or Nemotron, and the same
 `--seed` always reproduces the same run.
 
+### Running the shop
+
+**`solvent checkouts` — abandoned carts are normal; leaving them open is not.**
+A job that reached `awaiting_payment` used to sit there forever: polled on
+every worker pass, counted as pipeline, and never chased. Unpaid links now have
+a lifecycle — the customer is reminded after `reminder_after_hours` (at most
+`max_reminders` times, spaced), and the link expires after
+`expire_after_hours`, closing the Stripe session and dropping the job out of
+the queue. Expiry never moves money: an unpaid job has no revenue to refund.
+The worker sweeps on every pass; `--sweep` runs it by hand. Tune it in
+`.solvent/checkout_policy.json`.
+
+**`solvent intake` — the screen before the margin gate.** `security.py` refuses
+hostile content; this refuses bad *commerce*, and it runs before pricing so a
+screened-out job costs nothing:
+
+| Rule | What it catches |
+|---|---|
+| `duplicate` | the same customer asking for the same brief inside an hour — a double-click, not two commissions |
+| `customer_burst` | one customer flooding the queue |
+| `oversized_order` | an order above the automatic ceiling, where a human should look first |
+| `unreachable_customer` | a missing or malformed email, or a blocked domain |
+
+Blocks are recorded on the job with an `intake:` reason, so they are greppable
+in `solvent jobs` and the event log. Thresholds live in
+`.solvent/intake_policy.json`.
+
+**`solvent optimize` — which policy should I actually run?** `simulate` answers
+"what would this do"; this searches the space. It sweeps margin floor ×
+minimum order over identical synthetic demand (common random numbers, so cells
+differ by policy and nothing else) and picks the best-paying cell *inside a
+stated risk budget* — by default, ending a day below the cash reserve at most
+5% of the time. The constraint is the whole point: without it, "best" always
+picks the reckless cell.
+
+```
+    FLOOR  MIN ORDER   ACCEPT     NET/DAY    p10 BAL  BELOW RES
+    35.0%     $10.00    17.7%      $-3.04    $-34.29      28.0%
+    45.0%     $10.00    24.0%      $35.84     $32.26       0.0% ←
+
+  → Run a 45.0% margin floor with a $10.00 minimum order: $35.84 net per day.
+    vs the policy in force (35.0% / $15.00): $12.35 more per day.
+```
+
+(that run is `--cost-multiplier 8`: the same search under a vendor price shock)
+
 ---
 
 ## 🔑 Make It Real
@@ -493,6 +542,9 @@ solvent/
   calibration.py   realized COGS → cost-model calibration (`solvent costs`)
   customers.py     lifetime value and repeat rate (`solvent customers`)
   simulate.py      policy simulator over synthetic demand (`solvent simulate`)
+  optimize.py      policy search under a risk budget (`solvent optimize`)
+  checkout.py      payment reminders and link expiry (`solvent checkouts`)
+  intake.py        commercial screen on inbound jobs (`solvent intake`)
   stripe_client.py two-sided Stripe layer (earn + spend)
   nemotron.py      NVIDIA Nemotron client (+ offline stub)
   service.py       the product: an on-demand research brief

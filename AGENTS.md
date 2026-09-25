@@ -24,7 +24,13 @@ Realized COGS feed back into the gate (`calibration.py`): quotes are marked up
 when costs run hot, never marked down. Refunds are booked with the
 `customer-refund` vendor tag and are excluded from spend budgets — they are an
 outflow, not operating spend. `simulate.py` runs pricing + guardrails over
-synthetic demand without touching the treasury.
+synthetic demand without touching the treasury, and `optimize.py` searches the
+policy grid under a risk budget.
+
+Inbound work passes `intake.py` (duplicates, bursts, oversized orders,
+unreachable customers) before it is quoted. Unpaid checkouts are chased and
+then expired by `checkout.py`, swept on every worker pass. Policy files:
+`.solvent/{pricing_overrides,spend_policy,checkout_policy,intake_policy}.json`.
 
 Nemotron may chat and plan; treasury writes and Stripe stay in stages/guardrails.
 
@@ -37,6 +43,7 @@ python -m solvent serve|worker|telegram|doctor|pairing|workspace|finance|reconci
 python -m solvent quote "<topic>" --budget 49   # dry-run the margin gate
 python -m solvent backlog|guardrails            # ranked queue / spend policy in force
 python -m solvent customers|costs|simulate     # customer book / cost model / policy sim
+python -m solvent checkouts|intake|optimize    # unpaid links / intake screen / policy search
 ```
 
 ## Conventions
