@@ -22,7 +22,7 @@ from collections.abc import Callable
 from .calibration import calibration_factor
 from .guardrails import Guardrails
 from .pricing import PricingPolicy
-from .stages import StageRunner, validate_and_coerce_job
+from .stages import StageRunner, _job_id_of, validate_and_coerce_job
 from .stripe_client import StripeClient
 from .treasury import Treasury
 
@@ -82,8 +82,7 @@ class Solvent:
         """Validate and persist a job for async worker processing."""
         validated, err = validate_and_coerce_job(job, self.t)
         if err:
-            job_id = validated.get("id", "unknown") if validated else "unknown"
-            return self._emit(stage="declined", job_id=job_id, reason=err)
+            return self._emit(stage="declined", job_id=_job_id_of(job, validated), reason=err)
         assert validated is not None
         q = self._runner._stage_quote(validated)
         if q.get("stage") == "declined" or not q.get("accept"):
